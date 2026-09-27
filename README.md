@@ -1,176 +1,105 @@
 # UrlShortener
 
-Domain-Driven Design (DDD) ve Clean Architecture prensipleriyle yazılmış, .NET 10 tabanlı bir URL kısaltma servisi.
+Uzun linkleri kısaltan ve her kısa linkin kaç kez tıklandığını takip eden küçük bir servis. .NET 10 ile, Domain-Driven Design (DDD) yaklaşımıyla yazıldı.
 
-## Mimari
+```
+https://github.com/dotnet/aspnetcore  →  http://localhost:5080/aspnet
+```
+
+## Hızlı başlangıç
+
+Bilgisayarında [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) kurulu olmalı. macOS'ta `brew install --cask dotnet-sdk` ile kurabilirsin.
+
+Projeyi çalıştır:
+
+```bash
+dotnet watch --project src/UrlShortener.Api
+```
+
+`Now listening on: http://localhost:5080` yazısını görünce hazırsın. `dotnet watch`, kodu değiştirdiğinde sunucuyu kendiliğinden yeniden başlatır. Veritabanı (`urlshortener.db`) ilk açılışta otomatik oluşturulur.
+
+İlk kısa linkini oluştur:
+
+```bash
+curl -X POST http://localhost:5080/api/short-urls -H "Content-Type: application/json" -d '{"url":"https://github.com/dotnet/aspnetcore","customCode":"aspnet"}'
+```
+
+Sonra tarayıcıda `http://localhost:5080/aspnet` adresini aç. GitHub'a gideceksin.
+
+## Neler yapabilirsin
+
+| Ne yapmak istiyorsun? | İstek |
+|---|---|
+| Link kısalt | `POST /api/short-urls` |
+| Tüm linklerini gör | `GET /api/short-urls` |
+| Bir linkin detayına ve tıklanma sayısına bak | `GET /api/short-urls/{code}` |
+| Bir linkin ne zaman tıklandığını gör | `GET /api/short-urls/{code}/visits` |
+| Bir linki kapat | `DELETE /api/short-urls/{code}` |
+| Kısa linke git | `GET /{code}` |
+
+Bu isteklerin hepsini hazır olarak iki yerde bulabilirsin:
+
+- **Postman:** [`postman/UrlShortener.postman_collection.json`](postman/UrlShortener.postman_collection.json) dosyasını Postman'de **Import** ile içe aktar. Bir link oluşturduğunda kodu otomatik hatırlar, diğer istekleri hiçbir şey değiştirmeden gönderebilirsin.
+- **VS Code / Rider:** [`UrlShortener.Api.http`](src/UrlShortener.Api/UrlShortener.Api.http) dosyasını aç, isteğin üstündeki **Send Request**'e tıkla. VS Code'da REST Client eklentisi gerekir.
+
+### Bilmende fayda var
+
+- **Kendi kodunu seçebilirsin.** `customCode` vermezsen `aZ3k9Qx` gibi rastgele bir kod üretilir. Kod 4–32 karakter olmalı ve yalnızca harf, rakam, `-` ve `_` içermeli.
+- **Aynı adresi tekrar kısaltırsan yeni bir link alırsın.** Her linkin tıklanma sayısı ayrı tutulur. Aynı sayfayı farklı yerlerde paylaşıp hangisinin daha çok tıklandığını görmek istersen işine yarar.
+- **Linke son kullanma tarihi koyabilirsin** (`expiresAtUtc`). Süresi dolan ya da kapatılan link artık yönlendirme yapmaz, `410 Gone` döner.
+- **Saatler UTC.** Türkiye saati için 3 saat ekle.
+- **Listeler sayfa sayfa gelir.** Varsayılan olarak sayfa başına 20 kayıt döner. `?page=2&pageSize=50` gibi değiştirebilirsin, sayfa başına en fazla 100.
+- **Hatalar anlaşılır döner.** Geçersiz bir istekte (`400`), bulunamayan bir linkte (`404`) ya da alınmış bir kodda (`409`) yanıtta ne olduğunu açıklayan bir mesaj bulunur.
+
+## Proje nasıl düzenlendi
+
+Proje, her birinin tek bir işi olan dört parçaya bölündü:
 
 ```
 src/
-├── UrlShortener.Domain          → İş kuralları. Hiçbir framework'e ve NuGet paketine bağımlı değil.
-├── UrlShortener.Application     → Use case'ler (CQRS komut/sorgu handler'ları).
-├── UrlShortener.Infrastructure  → EF Core + SQLite, repository'ler, okuma sorguları, kısa kod üretici.
-└── UrlShortener.Api             → Minimal API endpoint'leri (sunum katmanı).
-tests/
-├── UrlShortener.Domain.UnitTests
-├── UrlShortener.Application.UnitTests
-└── UrlShortener.ArchitectureTests  → Katman ve DDD kurallarını her build'de doğrular.
+├── UrlShortener.Domain          İş kuralları: "süresi dolmuş link yönlendirmez" gibi
+├── UrlShortener.Application     Kullanıcının yapabildiği işler: link oluştur, listele, kapat
+├── UrlShortener.Infrastructure  Veritabanı ve diğer teknik detaylar
+└── UrlShortener.Api             Dışarıya açılan HTTP uç noktaları
 ```
 
-Bağımlılıklar her zaman **içe doğru** akar:
+Tek bir kural var: **içteki parça dıştakini bilmez.** Domain, veritabanının ya da HTTP'nin varlığından habersizdir. Bu sayede iş kuralları tek bir yerde toplanır ve veritabanı açmadan test edilebilir.
 
-```
-Api ──► Infrastructure ──► Application ──► Domain
- └────────────────────────────┘
-```
+### Ortak dil
 
-## Ubiquitous language (ortak dil)
+DDD'de kodda, testlerde ve konuşurken aynı kavramlar için aynı kelimeler kullanılır:
 
-Kodda, testlerde ve API'de aynı kavramlar aynı isimlerle kullanılır:
-
-| Terim | Anlamı | Koddaki karşılığı |
-|---|---|---|
-| **Short URL** | Bir kısa kodun bir hedef adrese yönlendirmesi | `ShortUrl` (aggregate) |
-| **Short code** | Linki tanımlayan benzersiz, URL-güvenli anahtar (`aZ3k9Qx`) | `ShortCode` (value object) |
-| **Original URL** | Yönlendirilecek mutlak http(s) adresi | `OriginalUrl` (value object) |
-| **Allocate** | Bir short URL için kod ayırmak (istenen kodu almak ya da yenisini üretmek) | `ShortCodeAllocator.AllocateAsync` |
-| **Visit** | Birinin kısa linke tıkladığı an. Değişmez bir olgu | `Visit` (aggregate) |
-| **Resolve** | Kodu hedef adrese çözmek ve ziyareti kaydetmek | `ResolveShortUrlCommand` |
-| **Expired** | Son kullanma tarihi geçmiş link | `ShortUrlStatus.Expired` |
-| **Deactivate** | Linki kalıcı olarak kullanım dışı bırakmak (soft delete) | `ShortUrl.Deactivate` |
-
-## Domain modeli
-
-### Aggregate'ler
-
-**`ShortUrl`** bir linkin kimliğini ve yaşam döngüsünü yönetir: oluşturma, son kullanma ve pasifleştirme.
-- Public setter'ı ve public constructor'ı yok. Yalnızca `Create` factory metodu ile doğar.
-- `RecordVisit(now)` iş kuralını uygular: yalnızca aktif bir link ziyaret edilebilir. Başarılıysa yeni bir `Visit` döner. Kendi durumunu **değiştirmez**.
-
-**`Visit`** bir ziyareti temsil eden değişmez (immutable) bir kayıttır.
-- `ShortUrl`'e yalnızca `ShortUrlId` üzerinden bağlıdır (reference by identity).
-- Yalnızca `ShortUrl.RecordVisit` tarafından oluşturulabilir (`internal` factory). Böylece süresi dolmuş veya pasif bir link için ziyaret kaydedilemez.
-
-### Neden iki ayrı aggregate?
-
-Vernon'un aggregate tasarım kuralları:
-
-1. **Aggregate'i gerçek tutarlılık sınırına göre çiz.** Ziyaret sayısı, linkin geçerliliğiyle aynı transaction'da tutarlı olmak zorunda değil. `ShortUrl`'ün koruması gereken kurallar yalnızca kod, adres, son kullanma ve pasiflik.
-2. **Aggregate'leri küçük tut.** Sayaç `ShortUrl`'ün içinde olsaydı her yönlendirme aynı satırı güncellerdi. Eşzamanlı isteklerde güncellemeler birbirini ezer (*lost update*).
-3. **Başka aggregate'e id ile referans ver.** `Visit` bir `ShortUrl` nesnesi tutmaz, yalnızca `ShortUrlId` tutar.
-
-Ölçülen fark: 100 eşzamanlı yönlendirmeden sonra sayacı aggregate içinde tutan ilk sürüm `visitCount: 11` gösterdi. Mevcut sürüm `visitCount: 100` gösteriyor. Ziyaretler yalnızca ekleme (append-only) olduğu için hiçbir istek başka bir isteğin satırını güncellemez.
-
-### Value object'ler
-
-| Value object | Kurallar |
+| Kavram | Anlamı |
 |---|---|
-| `ShortCode` | 4–32 karakter, yalnızca `a-z A-Z 0-9 - _`. Rezerve kelimeler (`admin`, `health`, `openapi`, `swagger`) kullanılamaz. |
-| `OriginalUrl` | Mutlak `http`/`https` adresi, en fazla 2048 karakter. `javascript:`, `ftp:`, göreli yollar reddedilir. |
-| `ShortUrlId`, `VisitId` | Strongly-typed id. `Guid.CreateVersion7()` ile zamana göre sıralanabilir. |
+| **Short URL** (`ShortUrl`) | Bir kısa kodun bir adrese yönlendirmesi |
+| **Short code** (`ShortCode`) | Linki tanımlayan kısa anahtar, örneğin `aspnet` |
+| **Visit** (`Visit`) | Birinin kısa linke tıkladığı an |
+| **Resolve** | Kısa kodu gerçek adrese çevirip ziyareti kaydetmek |
+| **Expired** | Son kullanma tarihi geçmiş link |
+| **Deactivate** | Linki kalıcı olarak kapatmak |
 
-Geçersiz bir value object oluşturulamaz. `Create` metodu `Result<T>` döner.
+## Neden böyle tasarlandı
 
-### Domain service: `ShortCodeAllocator`
+**Kurallar, ilgili nesnenin içinde yaşar.** Geçersiz bir `ShortCode` oluşturulamaz, çünkü doğrulama nesnenin kendisinde yapılır. `ShortUrl`'ün durumu da dışarıdan değiştirilemez. Değişiklik yalnızca `Deactivate` gibi kurallarını kendisi kontrol eden metodlarla yapılabilir. Böylece "pasif bir linki yanlışlıkla canlandırmak" gibi bir hata yapılamaz.
 
-"Bir kısa kod yalnızca bir linke ait olabilir" kuralını tek bir `ShortUrl` kendi başına koruyamaz, çünkü diğer bütün linkleri bilmesi gerekir. Birden fazla aggregate'i ilgilendiren bu tür kurallar DDD'de bir **domain service** içinde yaşar. Application katmanı yalnızca bu servisi çağırır, kuralın kendisini bilmez.
+**Ziyaretler linkten ayrı tutulur.** Her tıklama ayrı bir `Visit` kaydı olarak eklenir, linkin kendi kaydı hiç güncellenmez. Böylece aynı anda gelen tıklamalar birbirini ezmez. Sayaç linkin içinde tutulduğunda aynı anda gelen 100 tıklamanın yalnızca 11'i sayılıyordu. Bu yapıyla 100'ün 100'ü sayılıyor.
 
-Kontrol ile kayıt arasında bir yarış (race condition) mümkün olduğu için veritabanındaki unique index son güvence olarak kalır. Çakışma olursa Infrastructure bunu `UniqueConstraintViolationException`'a çevirir ve API `409 Conflict` döner.
+**Kod benzersizliği özel bir serviste kontrol edilir.** "Bir kod yalnızca bir linke ait olabilir" kuralını tek bir link kendi başına kontrol edemez, çünkü diğer linkleri bilmez. Bu iş `ShortCodeAllocator`'da yapılıyor. İki istek aynı anda aynı kodu isterse veritabanı da ikincisini reddediyor.
 
-### Domain event'ler
+**Beklenen hatalar exception değil, sonuç olarak döner.** "Bu kod alınmış" ya da "link süresi dolmuş" durumları hata değil, olağan senaryolar. Bu yüzden exception fırlatmak yerine `Result` ile dönüyorlar. API bunları doğru HTTP koduna çeviriyor.
 
-`ShortUrlCreatedDomainEvent` ve `ShortUrlDeactivatedDomainEvent` aggregate tarafından üretilir. `SaveChangesAsync` sırasında toplanır ve **commit'ten sonra** `IDomainEventHandler<T>`'lere dağıtılır.
+**Yönlendirme `302` ile yapılır, `301` ile değil.** `301` kullanılsaydı tarayıcı yönlendirmeyi hafızaya alır ve sonraki tıklamalar sunucuya hiç ulaşmazdı. O zaman da sayılamazlardı.
 
-### Diğer kararlar
-
-- **Exception yerine Result pattern:** Beklenen iş hataları `Result<T>` + `Error` ile döner. Exception'lar gerçekten beklenmedik durumlar için kalır.
-- **Zaman soyutlaması:** `DateTime.UtcNow` yerine `TimeProvider` kullanılır. Domain metodları zamanı parametre olarak alır, böylece testler deterministik çalışır.
-- **Kod kalitesi derlemede denetlenir:** .NET analyzer'ları önerilen modda açık ve uyarılar hata sayılıyor (`Directory.Build.props`, `.editorconfig`). Best practice'e aykırı kod derlenmez.
-- **Kurallar testle korunur:** `ArchitectureTests` Domain'in hiçbir altyapıya bağımlı olmadığını doğrular. Ayrıca entity'lerde public setter ya da constructor olmadığını ve aggregate'lerin birbirine yalnızca id ile referans verdiğini kontrol eder.
-
-## Application katmanı (CQRS)
-
-MediatR kullanılmadı (v13'ten itibaren ticari lisanslı). Onun yerine sade `ICommandHandler` / `IQueryHandler` arayüzleri var ve assembly taramasıyla DI'a otomatik kaydediliyorlar.
-
-| Use case | Tür | Açıklama |
-|---|---|---|
-| `CreateShortUrlCommand` | Command | `ShortCodeAllocator` ile kod ayırır, `ShortUrl` oluşturur. |
-| `ResolveShortUrlCommand` | Command | Kodu çözer, `ShortUrl.RecordVisit` ile bir `Visit` kaydeder, hedef adresi döner. |
-| `GetShortUrlsQuery` | Query | Tüm linkler, durum ve ziyaret sayılarıyla birlikte. Tek SQL sorgusuyla okunur (`IShortUrlReader`). |
-| `GetShortUrlVisitsQuery` | Query | Bir linkin ziyaret geçmişi (`IVisitReader`). |
-| `GetShortUrlByCodeQuery` | Query | Link detayları ve istatistik. İstatistikler `IVisitReader` ile ziyaret kayıtlarından okunur (read side). |
-| `DeactivateShortUrlCommand` | Command | Linki pasifleştirir. |
-
-## API
-
-| Metod | Yol | Açıklama | Başarılı yanıt |
-|---|---|---|---|
-| `POST` | `/api/short-urls` | Kısa URL oluştur | `201 Created` |
-| `GET` | `/api/short-urls?page=1&pageSize=20` | Tüm linkler, en yeniden eskiye | `200 OK` |
-| `GET` | `/api/short-urls/{code}` | Detay + istatistik | `200 OK` |
-| `GET` | `/api/short-urls/{code}/visits?page=1&pageSize=20` | Ziyaret geçmişi, en yeniden eskiye | `200 OK` |
-| `DELETE` | `/api/short-urls/{code}` | Pasifleştir | `204 No Content` |
-| `GET` | `/{code}` | Orijinal URL'e yönlendir | `302 Found` |
-| `GET` | `/health` | Sağlık kontrolü | `200 OK` |
-| `GET` | `/openapi/v1.json` | OpenAPI dokümanı (Development) | `200 OK` |
-
-Liste endpoint'leri sayfalıdır. `pageSize` en fazla 100, varsayılanı 20'dir. Yanıtta `items`, `totalCount`, `totalPages` ve `hasNextPage` alanları bulunur.
-
-Hatalar [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) formatında döner. `Error.Type` → HTTP durum kodu eşlemesi şöyle: `Validation → 400`, `NotFound → 404`, `Conflict → 409`, `Gone → 410` (süresi dolmuş veya pasif link).
-
-Yönlendirme bilinçli olarak `301` yerine `302` ile yapılır. `301` tarayıcıda cache'lendiği için sonraki ziyaretler sunucuya hiç ulaşmaz ve sayılamaz.
-
-**Örnek istek**
-
-```http
-POST /api/short-urls
-Content-Type: application/json
-
-{
-  "url": "https://github.com/dotnet/aspnetcore",
-  "customCode": "aspnet",
-  "expiresAtUtc": "2030-01-01T00:00:00Z"
-}
-```
-
-```json
-{
-  "id": "0199...",
-  "code": "aspnet",
-  "shortLink": "http://localhost:5080/aspnet",
-  "originalUrl": "https://github.com/dotnet/aspnetcore",
-  "status": "Active",
-  "createdAtUtc": "2026-09-26T10:00:00+00:00",
-  "expiresAtUtc": "2030-01-01T00:00:00+00:00",
-  "deactivatedAtUtc": null,
-  "visitCount": 0,
-  "lastVisitedAtUtc": null
-}
-```
-
-Tüm uç noktalar hazır bir Postman koleksiyonu olarak [`postman/UrlShortener.postman_collection.json`](postman/UrlShortener.postman_collection.json) dosyasında. Postman'de **Import** ile içe aktarabilirsin.
-
-Diğer örnekler için [`UrlShortener.Api.http`](src/UrlShortener.Api/UrlShortener.Api.http) dosyasına bakabilirsin (VS Code REST Client, Rider ve Visual Studio ile doğrudan çalışır).
-
-## Çalıştırma
-
-Gereksinim: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-
-```bash
-dotnet run --project src/UrlShortener.Api
-```
-
-Uygulama `http://localhost:5080` adresinde açılır. SQLite veritabanı (`urlshortener.db`) ilk açılışta otomatik oluşturulur.
+## Testler
 
 ```bash
 dotnet test
 ```
 
-## Bilinçli sınırlar ve sonraki adımlar
+Üç test projesi var:
 
-- **Tek bounded context:** Şu an link yönetimi ve ziyaretler aynı context'te. Analitik büyürse (referrer, ülke, cihaz vb.) `Visit` ayrı bir *Analytics* bounded context'ine taşınabilir ve bir integration event ile beslenebilir.
-- **Outbox pattern:** Domain event'ler şu an commit'ten sonra aynı process içinde dağıtılıyor. Güvenilir entegrasyon event'leri (ör. mesaj kuyruğu) için bir outbox tablosu gerekir.
-- **EF Core migrations:** Şema değişmeye başladığında `EnsureCreated` yerine `dotnet ef migrations add Initial` + `MigrateAsync` kullanılmalı.
-- **PostgreSQL / SQL Server:** Yalnızca `Infrastructure` değişir. Domain ve Application etkilenmez.
-- **Cache:** Yönlendirme okuma-ağırlıklı bir iş. `GetByCodeAsync` önüne Redis / `HybridCache` konabilir.
-- **Rate limiting ve kimlik doğrulama:** `POST` endpoint'i `AddRateLimiter` ile sınırlanabilir, linkler kullanıcılara bağlanabilir.
-- **Domain'in karmaşıklığı:** URL kısaltma görece basit bir domain. DDD'nin asıl getirisi karmaşık iş kurallarında ortaya çıkar. Bu proje kalıpların doğru uygulanışını göstermek için bu kapsamda tutuldu.
+- **Domain testleri:** İş kurallarını test eder, örneğin "süresi dolmuş link ziyaret edilemez".
+- **Application testleri:** Akışları test eder, örneğin "hata varsa hiçbir şey kaydedilmez".
+- **Mimari testleri:** Yukarıdaki tasarım kurallarının zamanla bozulmadığını kontrol eder. Birisi Domain'e veritabanı kodu eklerse test kırılır.
+
+Ayrıca .NET'in kod analiz kuralları açık ve uyarılar hata sayılıyor. Kötü pratik içeren kod derlenmez.
