@@ -1,9 +1,11 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using UrlShortener.Application.Abstractions.Data;
 using UrlShortener.Application.Abstractions.Events;
 using UrlShortener.Domain.Abstractions;
 using UrlShortener.Domain.ShortUrls;
+using UrlShortener.Domain.Visits;
 
 namespace UrlShortener.Infrastructure.Persistence;
 
@@ -11,10 +13,11 @@ public sealed class ApplicationDbContext(
     DbContextOptions<ApplicationDbContext> options,
     IDomainEventDispatcher domainEventDispatcher) : DbContext(options), IUnitOfWork
 {
-    private const int SqliteConstraintUnique = 2067;
-    private const int SqliteConstraintPrimaryKey = 1555;
+    private const int SqliteUniqueConstraintFailed = 2067;
 
     public DbSet<ShortUrl> ShortUrls => Set<ShortUrl>();
+
+    public DbSet<Visit> Visits => Set<Visit>();
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
@@ -25,18 +28,21 @@ public sealed class ApplicationDbContext(
         {
             result = await base.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException exception) when (exception.InnerException is SqliteException
-        {
-            SqliteExtendedErrorCode: SqliteConstraintUnique or SqliteConstraintPrimaryKey
-        })
+        catch (DbUpdateException exception)
+            when (exception.InnerException is SqliteException { SqliteExtendedErrorCode: SqliteUniqueConstraintFailed })
         {
             throw new UniqueConstraintViolationException(exception);
         }
 
-        // Events are published only after the state change has been committed.
         await domainEventDispatcher.DispatchAsync(domainEvents, cancellationToken);
 
         return result;
+    }
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        // SQLite has no DateTimeOffset type; storing it as a sortable integer keeps MAX and ORDER BY working.
+        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToBinaryConverter>();
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
@@ -44,12 +50,7 @@ public sealed class ApplicationDbContext(
 
     private List<IDomainEvent> CollectDomainEvents()
     {
-        var aggregates = ChangeTracker
-            .Entries<IAggregateRoot>()
-            .Select(entry => entry.Entity)
-            .Where(aggregate => aggregate.DomainEvents.Count != 0)
-            .ToList();
-
+        var aggregates = ChangeTracker.Entries<IAggregateRoot>().Select(entry => entry.Entity).ToList();
         var domainEvents = aggregates.SelectMany(aggregate => aggregate.DomainEvents).ToList();
 
         aggregates.ForEach(aggregate => aggregate.ClearDomainEvents());

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using UrlShortener.Application.Abstractions.Events;
 using UrlShortener.Application.Abstractions.Messaging;
+using UrlShortener.Domain.ShortUrls;
 
 namespace UrlShortener.Application;
 
@@ -29,6 +30,7 @@ public static class DependencyInjection
         }
 
         services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
+        services.AddScoped<ShortCodeAllocator>();
 
         return services;
     }

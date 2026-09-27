@@ -11,7 +11,6 @@ public class DomainModelTests
     [Fact]
     public void Entities_HaveNoPublicSetters()
     {
-        // State may only change through behavior methods that protect the invariants.
         var violations = DomainAssembly
             .GetTypes()
             .Where(type => type is { IsClass: true, IsAbstract: false } && IsEntity(type))
@@ -27,12 +26,31 @@ public class DomainModelTests
     [Fact]
     public void Entities_HaveNoPublicConstructors()
     {
-        // Aggregates are created through factory methods so they can never start in an invalid state.
         var violations = DomainAssembly
             .GetTypes()
             .Where(type => type is { IsClass: true, IsAbstract: false } && IsEntity(type))
             .Where(type => type.GetConstructors(BindingFlags.Public | BindingFlags.Instance).Length != 0)
             .Select(type => type.Name)
+            .ToList();
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Aggregates_ReferenceOtherAggregatesOnlyByIdentity()
+    {
+        var entityTypes = DomainAssembly
+            .GetTypes()
+            .Where(type => type is { IsClass: true, IsAbstract: false } && IsEntity(type))
+            .ToList();
+
+        var violations = entityTypes
+            .SelectMany(type => type
+                .GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(property => entityTypes.Any(entityType =>
+                    entityType.IsAssignableFrom(property.PropertyType) ||
+                    typeof(IEnumerable<>).MakeGenericType(entityType).IsAssignableFrom(property.PropertyType)))
+                .Select(property => $"{type.Name}.{property.Name}"))
             .ToList();
 
         Assert.Empty(violations);

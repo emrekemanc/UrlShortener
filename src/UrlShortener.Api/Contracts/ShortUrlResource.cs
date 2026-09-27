@@ -14,7 +14,6 @@ public sealed record ShortUrlResource(
     long VisitCount,
     DateTimeOffset? LastVisitedAtUtc)
 {
-    // The public host is a delivery concern, so the full link is built here rather than in the domain.
     public static ShortUrlResource From(ShortUrlResponse response, HttpRequest request) => new(
         response.Id,
         response.Code,

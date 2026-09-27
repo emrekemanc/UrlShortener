@@ -1,25 +1,9 @@
 namespace UrlShortener.Domain.Abstractions;
 
-public interface IAggregateRoot
-{
-    IReadOnlyCollection<IDomainEvent> DomainEvents { get; }
-
-    void ClearDomainEvents();
-}
-
-public abstract class AggregateRoot<TId> : Entity<TId>, IAggregateRoot
+public abstract class AggregateRoot<TId>(TId id) : Entity<TId>(id), IAggregateRoot
     where TId : notnull
 {
     private readonly List<IDomainEvent> _domainEvents = [];
-
-    protected AggregateRoot(TId id)
-        : base(id)
-    {
-    }
-
-    protected AggregateRoot()
-    {
-    }
 
     public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
 

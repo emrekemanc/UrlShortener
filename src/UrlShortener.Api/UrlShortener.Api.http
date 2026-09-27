@@ -18,8 +18,14 @@ Content-Type: application/json
   "expiresAtUtc": "2030-01-01T00:00:00Z"
 }
 
+### Tüm linkler (en yeniden eskiye, sayfalı)
+GET {{host}}/api/short-urls?page=1&pageSize=20
+
 ### Detay ve istatistik
 GET {{host}}/api/short-urls/aspnet
+
+### Ziyaret geçmişi
+GET {{host}}/api/short-urls/aspnet/visits?page=1&pageSize=20
 
 ### Yönlendirme (302)
 GET {{host}}/aspnet

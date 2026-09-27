@@ -21,7 +21,6 @@ internal sealed class DomainEventDispatcher(IServiceProvider serviceProvider) : 
         }
     }
 
-    // Bridges the runtime event type to the strongly typed IDomainEventHandler<T> without reflection per call.
     private abstract class HandlerInvoker
     {
         public abstract Task InvokeAsync(

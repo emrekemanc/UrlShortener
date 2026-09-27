@@ -1,5 +1,6 @@
 using UrlShortener.Application.Abstractions.Data;
 using UrlShortener.Application.Abstractions.Messaging;
+using UrlShortener.Application.Visits;
 using UrlShortener.Domain.Abstractions;
 using UrlShortener.Domain.ShortUrls;
 
@@ -7,12 +8,10 @@ namespace UrlShortener.Application.ShortUrls.Create;
 
 internal sealed class CreateShortUrlCommandHandler(
     IShortUrlRepository repository,
-    IShortCodeGenerator codeGenerator,
+    ShortCodeAllocator codeAllocator,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider) : ICommandHandler<CreateShortUrlCommand, ShortUrlResponse>
 {
-    internal const int MaxGenerationAttempts = 5;
-
     public async Task<Result<ShortUrlResponse>> Handle(
         CreateShortUrlCommand command,
         CancellationToken cancellationToken)
@@ -23,9 +22,7 @@ internal sealed class CreateShortUrlCommandHandler(
             return originalUrlResult.Error;
         }
 
-        var codeResult = string.IsNullOrWhiteSpace(command.CustomCode)
-            ? await GenerateUniqueCodeAsync(cancellationToken)
-            : await EnsureCustomCodeIsAvailableAsync(command.CustomCode, cancellationToken);
+        var codeResult = await codeAllocator.AllocateAsync(command.CustomCode, cancellationToken);
         if (codeResult.IsFailure)
         {
             return codeResult.Error;
@@ -48,40 +45,9 @@ internal sealed class CreateShortUrlCommandHandler(
         }
         catch (UniqueConstraintViolationException)
         {
-            // Another request claimed the same code between our check and the insert.
             return ShortUrlErrors.CodeAlreadyTaken(shortUrl.Code);
         }
 
-        return shortUrl.ToResponse(utcNow);
-    }
-
-    private async Task<Result<ShortCode>> GenerateUniqueCodeAsync(CancellationToken cancellationToken)
-    {
-        for (var attempt = 0; attempt < MaxGenerationAttempts; attempt++)
-        {
-            var code = codeGenerator.Generate();
-
-            if (!await repository.ExistsAsync(code, cancellationToken))
-            {
-                return code;
-            }
-        }
-
-        return ShortUrlErrors.CodeGenerationFailed;
-    }
-
-    private async Task<Result<ShortCode>> EnsureCustomCodeIsAvailableAsync(
-        string customCode,
-        CancellationToken cancellationToken)
-    {
-        var codeResult = ShortCode.Create(customCode);
-        if (codeResult.IsFailure)
-        {
-            return codeResult;
-        }
-
-        return await repository.ExistsAsync(codeResult.Value, cancellationToken)
-            ? ShortUrlErrors.CodeAlreadyTaken(codeResult.Value)
-            : codeResult;
+        return shortUrl.ToResponse(VisitStatistics.None, utcNow);
     }
 }

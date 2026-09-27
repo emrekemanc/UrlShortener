@@ -3,9 +3,6 @@ using UrlShortener.Domain.ShortUrls;
 
 namespace UrlShortener.ArchitectureTests;
 
-/// <summary>
-/// Guards the dependency rule: dependencies point inwards (Api → Infrastructure → Application → Domain).
-/// </summary>
 public class LayerDependencyTests
 {
     private static readonly Assembly DomainAssembly = typeof(ShortUrl).Assembly;

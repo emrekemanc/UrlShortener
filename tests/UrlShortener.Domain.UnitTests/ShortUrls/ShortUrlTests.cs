@@ -17,7 +17,6 @@ public class ShortUrlTests
         Assert.Equal(Code, shortUrl.Code);
         Assert.Equal(Url, shortUrl.OriginalUrl);
         Assert.Equal(Now, shortUrl.CreatedAtUtc);
-        Assert.Equal(0L, shortUrl.VisitCount);
         Assert.Equal(ShortUrlStatus.Active, shortUrl.GetStatus(Now));
     }
 
@@ -42,38 +41,46 @@ public class ShortUrlTests
     }
 
     [Fact]
-    public void Visit_WhenActive_ReturnsOriginalUrlAndRecordsVisit()
+    public void RecordVisit_WhenActive_ReturnsVisitReferencingTheShortUrl()
     {
         var shortUrl = CreateShortUrl();
         var visitedAt = Now.AddMinutes(5);
 
-        var result = shortUrl.Visit(visitedAt);
+        var visit = shortUrl.RecordVisit(visitedAt).Value;
 
-        Assert.Equal(Url, result.Value);
-        Assert.Equal(1L, shortUrl.VisitCount);
-        Assert.Equal(visitedAt, shortUrl.LastVisitedAtUtc);
-        Assert.IsType<ShortUrlVisitedDomainEvent>(Assert.Single(shortUrl.DomainEvents));
+        Assert.Equal(shortUrl.Id, visit.ShortUrlId);
+        Assert.Equal(visitedAt, visit.VisitedAtUtc);
     }
 
     [Fact]
-    public void Visit_AfterExpiration_ReturnsExpiredAndDoesNotCount()
+    public void RecordVisit_DoesNotChangeTheShortUrl()
+    {
+        var shortUrl = CreateShortUrl();
+
+        shortUrl.RecordVisit(Now.AddMinutes(5));
+
+        Assert.Empty(shortUrl.DomainEvents);
+        Assert.Equal(ShortUrlStatus.Active, shortUrl.GetStatus(Now.AddMinutes(5)));
+    }
+
+    [Fact]
+    public void RecordVisit_AfterExpiration_ReturnsExpired()
     {
         var shortUrl = CreateShortUrl(expiresAtUtc: Now.AddHours(1));
 
-        var result = shortUrl.Visit(Now.AddHours(2));
+        var result = shortUrl.RecordVisit(Now.AddHours(2));
 
         Assert.Equal(ShortUrlErrors.Expired, result.Error);
-        Assert.Equal(0L, shortUrl.VisitCount);
         Assert.Equal(ShortUrlStatus.Expired, shortUrl.GetStatus(Now.AddHours(2)));
     }
 
     [Fact]
-    public void Visit_WhenDeactivated_ReturnsDeactivated()
+    public void RecordVisit_WhenDeactivated_ReturnsDeactivated()
     {
         var shortUrl = CreateShortUrl();
         shortUrl.Deactivate(Now);
 
-        var result = shortUrl.Visit(Now.AddMinutes(1));
+        var result = shortUrl.RecordVisit(Now.AddMinutes(1));
 
         Assert.Equal(ShortUrlErrors.Deactivated, result.Error);
     }

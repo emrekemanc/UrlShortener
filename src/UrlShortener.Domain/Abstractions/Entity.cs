@@ -1,14 +1,9 @@
 namespace UrlShortener.Domain.Abstractions;
 
-public abstract class Entity<TId> : IEquatable<Entity<TId>>
+public abstract class Entity<TId>(TId id) : IEquatable<Entity<TId>>
     where TId : notnull
 {
-    protected Entity(TId id) => Id = id;
-
-    // Required by EF Core for materialization.
-    protected Entity() => Id = default!;
-
-    public TId Id { get; private init; }
+    public TId Id { get; } = id;
 
     public bool Equals(Entity<TId>? other) =>
         other is not null &&

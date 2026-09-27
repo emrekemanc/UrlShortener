@@ -1,24 +1,16 @@
+using System.Collections.Frozen;
 using UrlShortener.Domain.Abstractions;
 
 namespace UrlShortener.Domain.ShortUrls;
 
-/// <summary>
-/// The unique, URL-safe key that identifies a short URL (e.g. "aZ3k9Qx" in https://sho.rt/aZ3k9Qx).
-/// </summary>
 public sealed record ShortCode
 {
     public const int MinLength = 4;
     public const int MaxLength = 32;
     public const int GeneratedLength = 7;
 
-    // Codes that would collide with the application's own routes.
-    private static readonly HashSet<string> ReservedCodes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "admin",
-        "health",
-        "openapi",
-        "swagger"
-    };
+    private static readonly FrozenSet<string> ReservedCodes =
+        new[] { "admin", "health", "openapi", "swagger" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     private ShortCode(string value) => Value = value;
 
@@ -50,8 +42,6 @@ public sealed record ShortCode
 
         return new ShortCode(value);
     }
-
-    public override string ToString() => Value;
 
     private static bool IsAllowedCharacter(char c) => char.IsAsciiLetterOrDigit(c) || c is '-' or '_';
 }
